@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SRM Attendance Scanner</title>
+    <script>
+        (function () {
+            try {
+                var key = 'srm-theme';
+                var saved = localStorage.getItem(key);
+                if (saved === 'light' || saved === 'dark') {
+                    document.documentElement.setAttribute('data-theme', saved);
+                } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                }
+            } catch (e) { }
+        })();
+    </script>
+    <link rel="stylesheet" href="scanner.css" />
+    <!-- face-api.js: place libs/face-api.min.js here or use CDN -->
+    <!-- <script defer src="libs/face-api.min.js"></script> -->
+    <script defer src="db.js"></script>
+    <script defer src="scanner.js"></script>
+    <!-- inside scanner.html head -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+</head>
+
+<body>
+    <div class="scanner-app container">
+        <header class="site-header scanner-header">
+            <div class="header-inner">
+                <div class="brand">
+                    <img class="logo" src="../education.png" alt="Education logo" width="44" height="44">
+                    <div class="title-wrap">
+                        <h1 class="site-title">Attendance Scanner</h1>
+                        <p class="site-sub muted">Scan & mark attendance — real time</p>
+                    </div>
+                </div>
+
+                <div class="controls-row">
+                    <select id="classSelect">
+                        <option value="">Select class</option>
+                    </select>
+                    <select id="sectionSelect">
+                        <option value="">Select section</option>
+                    </select>
+                    <button id="loadEmbBtn" class="btn btn-primary">Load Students</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="scanner-main">
+            <section class="panel video-panel">
+                <div class="panel-header">
+                    <h2 class="muted">Live Camera</h2>
+                </div>
+                <div class="video-wrap">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="overlay"></canvas>
+                </div>
+            </section>
+
+            <aside class="side-panel">
+                <section class="panel">
+                    <div class="panel-header">
+                        <h3>Controls</h3>
+                        <p class="muted">Start/stop camera and manage queue</p>
+                    </div>
+                    <div class="controls">
+                        <button id="startBtn" class="btn btn-primary">Start Camera</button>
+                        <button id="stopBtn" class="btn">Stop</button>
+                        <button id="manualBtn" class="btn">Manual</button>
+                        <button id="syncBtn" class="btn">Sync Queue</button>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-header">
+                        <h3>Activity Log</h3>
+                    </div>
+                    <pre id="log" class="log" aria-live="polite"></pre>
+                </section>
+            </aside>
+        </main>
+    </div>
+</body>
+
+</html>

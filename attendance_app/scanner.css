@@ -1,0 +1,166 @@
+/* Import shared site styles so scanner UI matches the main project look */
+@import url("../styles.css");
+
+/* Scanner-specific layout + overrides to match the SRM style */
+.scanner-app.container {
+    padding-top: 8px;
+    padding-bottom: 28px;
+}
+
+.scanner-header {
+    display: block;
+    margin-bottom: 18px
+}
+
+.scanner-header .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px
+}
+
+.controls-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: flex-end
+}
+
+.controls-row {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(255, 255, 255, 0.008));
+    padding: 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    box-shadow: 0 6px 20px rgba(2, 6, 23, 0.25);
+}
+
+/* Use shared .btn and .btn-primary styles from main stylesheet; small overrides */
+select,
+.controls-row select {
+    padding: 12px 40px 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(255, 255, 255, 0.006));
+    color: var(--text);
+    min-width: 160px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 14px;
+    box-shadow: 0 6px 18px rgba(2, 6, 23, 0.18);
+}
+
+/* chevron (down) svg as data URI */
+select,
+.controls-row select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239aa8bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+}
+
+select:focus,
+.controls-row select:focus {
+    outline: none;
+    border-color: rgba(110, 231, 183, 0.9);
+    box-shadow: 0 8px 24px rgba(102, 255, 210, 0.06);
+}
+
+/* ensure buttons inside controls-row align vertically with selects */
+.controls-row .btn {
+    padding: 10px 14px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center
+}
+
+.scanner-main {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 18px;
+    align-items: stretch;
+    align-content: start
+}
+
+.video-panel {
+    display: flex;
+    flex-direction: column
+}
+
+.video-wrap {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+    height: 60vw;
+    max-height: 560px;
+    box-shadow: var(--shadow);
+    display: flex
+}
+
+.video-wrap video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block
+}
+
+.video-wrap canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none
+}
+
+.side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px
+}
+
+.side-panel .panel {
+    padding: 14px;
+    display: flex;
+    flex-direction: column
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap
+}
+
+.log {
+    margin-top: 8px;
+    background: rgba(255, 255, 255, 0.01);
+    padding: 12px;
+    border-radius: 10px;
+    min-height: 120px;
+    color: var(--muted);
+    overflow: auto
+}
+
+@media (max-width:900px) {
+    .scanner-main {
+        grid-template-columns: 1fr;
+    }
+
+    .video-wrap {
+        height: 56vw
+    }
+}
+
+@media (max-width:720px) {
+    .scanner-header .header-inner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px
+    }
+
+    .controls-row {
+        justify-content: flex-start;
+        gap: 8px
+    }
+
+    select {
+        min-width: 120px
+    }
+}

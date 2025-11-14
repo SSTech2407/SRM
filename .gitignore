@@ -1,0 +1,20 @@
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+
+# Environment files
+.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build / local
+dist/
+coverage/
+
+# Optional: face api models (if NOT using Git LFS)
+attendance_app/models/
