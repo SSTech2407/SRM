@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AND Web ERP</title>
+  <title>Student Record Manager</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="dashboard-home.css" />
 </head>
@@ -12,6 +12,8 @@
   <a id="home" class="panel-anchor" aria-hidden="true"></a>
   <a id="add" class="panel-anchor" aria-hidden="true"></a>
   <a id="students" class="panel-anchor" aria-hidden="true"></a>
+  <a id="attendance" class="panel-anchor" aria-hidden="true"></a>
+  <a id="about" class="panel-anchor" aria-hidden="true"></a>
   <header class="site-header">
     <div class="container header-inner">
       <div class="brand">
@@ -82,6 +84,23 @@
         <div class="form-group">
           <label for="year">Year of Admission</label>
           <input id="year" name="year" type="number" min="1900" max="2099" placeholder="e.g., 2025" />
+        </div>
+
+        <div class="form-group">
+          <label for="semester">Semester</label>
+          <input id="semester" name="semester" type="number" min="1" max="12" placeholder="e.g., 3" />
+        </div>
+
+        <div class="form-group" id="faceField">
+          <label for="facePreviewImg">Face Registration</label>
+          <div class="face-input-row">
+            <img id="facePreviewImg" alt="Face preview" class="face-preview" src="face_icon.jpg" />
+            <div class="face-actions">
+              <button type="button" id="faceRegisterBtn" class="btn btn-ghost">Register Face</button>
+              <input type="hidden" id="facePreviewData" name="facePreviewData" />
+            </div>
+          </div>
+          <p class="muted" style="margin-top:6px">Capture a face snapshot to link with this student.</p>
         </div>
 
         <div class="form-actions" aria-hidden="false">
@@ -169,32 +188,19 @@
       </div>
 
       <div class="table-wrap">
-        <table class="students-table" role="table" aria-label="Student records (design only)">
+        <table class="students-table" role="table" aria-label="Student records">
           <thead>
             <tr>
               <th scope="col">Name</th>
               <th scope="col">Roll Number</th>
               <th scope="col">Section</th>
-              <th scope="col">Department</th>
               <th scope="col">Course</th>
-              <th scope="col">Phone</th>
-              <th scope="col">Year</th>
-              <th scope="col">Email</th>
+              <th scope="col">Semester</th>
               <th scope="col" class="actions-col">Actions</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td>Sparsh Sharma</td>
-              <td>30712389714</td>
-              <td>E</td>
-              <td>Computer Application</td>
-              <td>BCA</td>
-              <td>6392134303</td>
-              <td>2023</td>
-              <td></td>
-              <td class="actions"></td>
-            </tr>
+          <tbody id="studentsBody">
+            <tr class="placeholder"><td colspan="6" class="muted">No students yet. Add a student to see them here.</td></tr>
           </tbody>
         </table>
       </div>
@@ -206,6 +212,57 @@
           <button class="page-btn active">1</button>
           <button class="page-btn" disabled>Next ›</button>
         </div>
+      </div>
+    </section>
+
+    <section id="about-panel" class="panel about-panel" aria-labelledby="about-heading">
+      <div class="panel-header">
+        <div>
+          <h2 id="about-heading">About Student Record Manager</h2>
+          <p class="muted">Modern, local-first attendance and student records dashboard</p>
+        </div>
+      </div>
+
+      <div class="about-content">
+        <p>Student Record Manager (SRM) helps institutes manage student details and track attendance with a clean, responsive UI. It works fully offline in the browser using IndexedDB, and can later connect to a backend for syncing.</p>
+
+        <h3>Key Features</h3>
+        <ul>
+          <li>Add, view, edit, and delete student records</li>
+          <li>Searchable student listing with quick filters</li>
+          <li>Dashboard KPIs, monthly attendance chart, and short-attendance list</li>
+          <li>Attendance scanner page prepared for face recognition</li>
+          <li>Local-first storage via IndexedDB for offline usage</li>
+        </ul>
+
+        <h3>How It Works</h3>
+        <ul>
+          <li><strong>Tabs:</strong> Home, Add Student, View Students, Attendance, and About</li>
+          <li><strong>Storage:</strong> Students and attendance logs are saved in your browser (IndexedDB)</li>
+          <li><strong>Dashboard:</strong> Aggregates local data to render KPIs, charts, and short-attendance</li>
+          <li><strong>Scanner:</strong> Uses camera (getUserMedia) and face-api.js for future face matching</li>
+        </ul>
+
+        <h3>Data & Privacy</h3>
+        <ul>
+          <li>All data stays on your device unless you add a backend to sync</li>
+          <li>Clear data anytime by clearing the browser’s site data for this app</li>
+        </ul>
+
+        <h3>Tech Stack</h3>
+        <ul>
+          <li>HTML, CSS, and vanilla JavaScript</li>
+          <li>Chart.js for visualizations</li>
+          <li>IndexedDB for local persistence</li>
+          <li>face-api.js in the scanner (optional)</li>
+        </ul>
+
+        <h3>Next Steps</h3>
+        <ul>
+          <li>Connect to a backend (Node.js/Express) for multi-device sync</li>
+          <li>Finalize face registration/matching and auto-mark attendance</li>
+          <li>Export/import data as CSV</li>
+        </ul>
       </div>
     </section>
   </main>
@@ -222,6 +279,52 @@
     </div>
   </footer>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="notify.js"></script>
+  <script src="local-db.js"></script>
+  <script src="app.js" defer></script>
+  <script src="view-students.js" defer></script>
   <script src="dashboard-home.js" defer></script>
+  
+  <!-- Reusable modal for viewing student details -->
+  <div id="studentModal" class="modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="studentModalTitle">
+      <div class="modal-head">
+        <h3 id="studentModalTitle">Student Details</h3>
+        <button class="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div id="studentModalBody" class="modal-body"></div>
+      <div class="modal-foot">
+        <button id="modalCloseBtn" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Face Capture Modal -->
+  <div id="capModal" class="cap-modal" hidden>
+    <div class="cap-backdrop" aria-hidden="true"></div>
+    <div class="cap-card" role="dialog" aria-modal="true" aria-labelledby="capTitle">
+      <div class="cap-head">
+        <h3 id="capTitle">Register Face</h3>
+        <button id="capClose" class="cap-close" aria-label="Close">✕</button>
+      </div>
+      <div class="cap-sub muted">Center your face, ensure good lighting and a neutral expression.</div>
+      <div class="cap-body">
+        <div class="cap-stage">
+          <video id="capVideo" playsinline autoplay muted></video>
+          <img id="capPreview" alt="Captured preview" />
+        </div>
+        <div class="cap-side">
+          <div class="muted" style="margin-bottom:12px">Center your face, ensure good lighting and a neutral expression.</div>
+          <div class="cap-controls">
+            <button id="capCapture" class="btn btn-primary" type="button">Capture</button>
+            <button id="capRetake" class="btn" type="button" hidden>Retake</button>
+            <button id="capUse" class="btn" type="button" hidden>Use Photo</button>
+            <button id="capCancel" class="btn btn-ghost" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

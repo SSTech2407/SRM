@@ -28,7 +28,7 @@
 .welcome-block {
     display: flex;
     gap: 12px;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 10px
 }
 
@@ -42,6 +42,21 @@
     place-items: center;
     color: #fff;
     box-shadow: 0 6px 18px rgba(2, 6, 23, 0.5)
+}
+
+/* ensure heading aligns with icon top and instruction below */
+.welcome-block > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.welcome-block h2 {
+    margin: 0;
+    line-height: 1.15;
+}
+
+.welcome-block p {
+    margin: 4px 0 0 0;
 }
 
 .actions-row {
@@ -85,13 +100,23 @@
     align-items: center;
     justify-content: space-between;
     gap: 14px;
-    margin-bottom: 12px
+    margin-bottom: 12px;
+    flex-wrap: wrap
 }
 
 .panel-head.monthly-head {
     display: block;
     gap: 0;
     margin-bottom: 0px
+}
+
+/* Ensure the short-attendance header text doesn't get cut */
+.table-card .panel-head { display: block; }
+.table-card .panel-head .muted {
+    margin-top: 4px;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
 }
 
 #monthly-heading {
