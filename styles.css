@@ -481,7 +481,7 @@ body {
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: radial-gradient(600px 300px at 20% 15%, rgba(255, 255, 255, 0.18))), transparent), radial-gradient(700px 280px at 80% 85%, rgba(45, 212, 191, .18), transparent), rgba(2, 6, 23, 0.58);
+  background: radial-gradient(600px 300px at 20% 15%, rgba(255, 255, 255, 0.18)), transparent, radial-gradient(700px 280px at 80% 85%, rgba(45, 212, 191, .18), transparent), rgba(2, 6, 23, 0.58);
   backdrop-filter: blur(6px);
 }
 
