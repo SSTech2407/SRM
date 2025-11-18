@@ -74,7 +74,7 @@ select:focus,
 
 .scanner-main {
     display: grid;
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: 1fr 460px;
     gap: 18px;
     align-items: stretch;
     align-content: start
@@ -135,7 +135,30 @@ select:focus,
     border-radius: 10px;
     min-height: 120px;
     color: var(--muted);
-    overflow: auto
+    overflow: auto;
+}
+
+/* Students panel in scanner: remove forced min-width and scroll, show actions */
+#studentsPanel .table-wrap {
+    overflow: visible;
+}
+#studentsPanel .students-table {
+    min-width: 0;
+    table-layout: fixed;
+}
+#studentsPanel .students-table th:nth-child(1),
+#studentsPanel .students-table td:nth-child(1) { width: 48%; }
+#studentsPanel .students-table th:nth-child(2),
+#studentsPanel .students-table td:nth-child(2) { width: 22%; }
+#studentsPanel .students-table th:nth-child(3),
+#studentsPanel .students-table td:nth-child(3) { width: 14%; }
+#studentsPanel .students-table th:nth-child(4),
+#studentsPanel .students-table td:nth-child(4) { width: 16%; }
+
+.btn-small {
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 8px;
 }
 
 @media (max-width:900px) {

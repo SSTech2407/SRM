@@ -23,7 +23,7 @@
     <link rel="stylesheet" href="scanner.css" />
     <!-- face-api.js: place libs/face-api.min.js here or use CDN -->
     <!-- <script defer src="libs/face-api.min.js"></script> -->
-    <script defer src="db.js"></script>
+    <script defer src="../local-db.js"></script>
     <script defer src="scanner.js"></script>
     <!-- inside scanner.html head -->
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -45,12 +45,13 @@
 
                 <div class="controls-row">
                     <select id="classSelect">
-                        <option value="">Select class</option>
+                        <option value="">Select semester</option>
                     </select>
                     <select id="sectionSelect">
                         <option value="">Select section</option>
                     </select>
                     <button id="loadEmbBtn" class="btn btn-primary">Load Students</button>
+                    <span id="embCount" style="margin-left:10px;font-size:12px;padding:4px 8px;border-radius:12px;background:rgba(0,0,0,0.06);">Embeddings: —</span>
                 </div>
             </div>
         </header>
@@ -64,10 +65,8 @@
                     <video id="video" autoplay muted playsinline></video>
                     <canvas id="overlay"></canvas>
                 </div>
-            </section>
-
-            <aside class="side-panel">
-                <section class="panel">
+                <!-- Controls + Activity moved under camera -->
+                <section class="panel" style="margin-top:16px">
                     <div class="panel-header">
                         <h3>Controls</h3>
                         <p class="muted">Start/stop camera and manage queue</p>
@@ -76,16 +75,29 @@
                         <button id="startBtn" class="btn btn-primary">Start Camera</button>
                         <button id="stopBtn" class="btn">Stop</button>
                         <button id="manualBtn" class="btn">Manual</button>
-                        <button id="syncBtn" class="btn">Sync Queue</button>
-                        <button id="captureBtn" class="btn" style="display:none">Capture Face</button>
                     </div>
                 </section>
-
-                <section class="panel">
-                    <div class="panel-header">
-                        <h3>Activity Log</h3>
-                    </div>
+                <section class="panel" style="margin-top:16px">
+                    <div class="panel-header"><h3>Activity Log</h3></div>
                     <pre id="log" class="log" aria-live="polite"></pre>
+                </section>
+            </section>
+
+            <aside class="side-panel">
+                <section class="panel" id="studentsPanel">
+                    <div class="panel-header">
+                        <h3>Students</h3>
+                        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+                            <span id="sessionCount" class="muted">Marked: 0</span>
+                            <button id="submitBtn" class="btn btn-primary">Submit Attendance</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="students-table" role="table" aria-label="Loaded students">
+                            <thead><tr><th>Name</th><th>Roll</th><th>Status</th><th>Action</th></tr></thead>
+                            <tbody id="studentsList"><tr><td colspan="4" class="muted">Click "Load Students" to list students for selected semester and section.</td></tr></tbody>
+                        </table>
+                    </div>
                 </section>
             </aside>
         </main>

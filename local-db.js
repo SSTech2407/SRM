@@ -32,8 +32,20 @@
       semester: student.semester ? Number(student.semester) : null,
       email: (student.email||'').trim()
     };
-    const r = await http('/api/v1/students', { method:'POST', body: clean });
-    return r.id;
+    try {
+      const r = await http('/api/v1/students', { method:'POST', body: clean });
+      return r.id;
+    } catch (e) {
+      // Handle duplicate roll conflict: fetch existing by roll and return its id
+      if (/duplicate/i.test(e.message) && clean.roll) {
+        try {
+          const all = await listStudents();
+          const existing = all.find(s => String(s.roll).trim() === clean.roll);
+          if (existing) return existing.id;
+        } catch(_) {}
+      }
+      throw e;
+    }
   }
 
   // Save face preview image against a student id

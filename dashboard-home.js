@@ -44,25 +44,20 @@ document.addEventListener('DOMContentLoaded', () => {
         kpiShort.textContent = stats.shortCount;
         return;
       }
-    }catch(err){ console.warn('local DB stats failed, using mock', err); }
-
-    // MOCK fallback
-    const students = Array.from({ length: 60 }).map((_, i) => ({
-      id: 1000 + i,
-      name: `Student ${i + 1}`,
-      roll: `R-${(i + 1).toString().padStart(3, '0')}`,
-      dept: ['BCA', 'BSc', 'BCom', 'BTech'][i % 4]
-    }));
-    kpiStudents.textContent = students.length;
-    kpiToday.textContent = Math.round(70 + Math.random() * 30) + '%';
-    const start = startEl.value ? parseMonth(startEl.value) : null;
-    const end = endEl.value ? parseMonth(endEl.value) : null;
-    const threshold = Number(thresholdEl.value || 75);
-    const shortList = students.map(s => ({ ...s, pct: simulatePercent(s.id, start, end) }))
-      .filter(s => s.pct < threshold)
-      .sort((a, b) => a.pct - b.pct);
-    renderShortTable(shortList);
-    kpiShort.textContent = shortList.length;
+    }catch(err){
+      console.warn('local DB stats failed; not showing mock sample data', err);
+      // When backend/local DB is not available, show neutral empty state rather than sample data
+      kpiStudents.textContent = '0';
+      kpiToday.textContent = '—';
+      if (homeChart){
+        homeChart.data.labels = [];
+        homeChart.data.datasets[0].data = [];
+        homeChart.update();
+      }
+      renderShortTable([]);
+      kpiShort.textContent = '0';
+      return;
+    }
   }
 
   // Chart init (guard if Chart missing)

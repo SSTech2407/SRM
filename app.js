@@ -4,19 +4,98 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const faceImg = document.getElementById('facePreviewImg');
   const faceHidden = document.getElementById('facePreviewData');
   const defaultFaceSrc = faceImg ? faceImg.getAttribute('src') || '' : '';
+
+  // Lightweight face-api loader for embedding extraction on Add Student page
+  const MODEL_URL = './attendance_app/models';
+  let modelsLoaded = false;
+  const API_BASE = (localStorage.getItem('SRM_API_BASE') || 'http://localhost:4000').replace(/\/$/, '') + '/api/v1';
+  const EMB_Q_KEY = 'srm:embQueue';
+  async function ensureModels(){
+    if (modelsLoaded) return true;
+    if (!window.faceapi) return false;
+    try{
+      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+      modelsLoaded = true;
+      return true;
+    }catch(e){ console.warn('face-api model load failed', e); return false; }
+  }
+  async function computeDescriptorFromDataUrl(dataUrl){
+    if (!dataUrl) return null;
+    if (!await ensureModels()) return null;
+    const img = new Image(); img.crossOrigin='anonymous';
+    try {
+      await new Promise((res, rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
+      if (!img.naturalWidth || !img.naturalHeight){ console.warn('[descriptor:add] zero-dimension image'); return null; }
+      const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold:0.5, inputSize:224 });
+      let detFull = null;
+      try { detFull = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor(); }
+      catch(e){ console.warn('[descriptor:add] single face pipeline error', e.message); }
+      if (!detFull){
+        try {
+          const all = await faceapi.detectAllFaces(img, options).withFaceLandmarks().withFaceDescriptors();
+          if (all && all.length){
+            all.sort((a,b)=> (b.detection.box.width*b.detection.box.height)-(a.detection.box.width*a.detection.box.height));
+            detFull = all[0];
+          }
+        } catch(e){ console.warn('[descriptor:add] multi-face fallback error', e.message); }
+      }
+      if (!detFull){ console.warn('[descriptor:add] no face detected'); return null; }
+      if (!detFull.descriptor || detFull.descriptor.length !== 128){ console.warn('[descriptor:add] invalid descriptor length'); return null; }
+      return Array.from(detFull.descriptor);
+    } catch(e){ console.warn('descriptor compute failed (outer add)', e); return null; }
+  }
+
+  function readEmbQueue(){
+    try{ const j = localStorage.getItem(EMB_Q_KEY); return Array.isArray(JSON.parse(j)) ? JSON.parse(j) : []; }catch(_){ return []; }
+  }
+  function writeEmbQueue(arr){ try{ localStorage.setItem(EMB_Q_KEY, JSON.stringify(arr||[])); }catch(_){ } }
+  async function trySyncEmbQueue(){
+    const q = readEmbQueue(); if (!q.length) return;
+    const remain = [];
+    for (const item of q){
+      try{
+        const res = await fetch(API_BASE + '/face/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(item) });
+        if (!res.ok) throw new Error('HTTP '+res.status);
+      }catch(e){ remain.push(item); }
+    }
+    writeEmbQueue(remain);
+    if (q.length && !remain.length) { window.notify?.success?.('Queued face embeddings synced'); }
+  }
+  async function postEmbedding(studentId, descriptor){
+    if (!descriptor) return false;
+    try{
+      const res = await fetch(API_BASE + '/face/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ student_id: Number(studentId), embedding: descriptor }) });
+      if (res.ok) { return true; }
+      throw new Error('HTTP '+res.status);
+    }catch(e){
+      const q = readEmbQueue(); q.push({ student_id: Number(studentId), embedding: descriptor }); writeEmbQueue(q);
+      window.notify?.warn?.('Backend offline — face will sync when online');
+      return false;
+    }
+  }
   if (form){
+    // try syncing any queued embeddings on load
+    trySyncEmbQueue();
     form.addEventListener('submit', async (e)=>{
       e.preventDefault();
       const fd = new FormData(form);
       const student = Object.fromEntries(fd.entries());
       try{
         const newId = await window.srmLocal.addStudent(student);
+        const isDuplicate = !newId || Number.isNaN(Number(newId)) ? false : false; // placeholder if needed later
         // if a face snapshot was captured earlier, persist it now for the real ID
         if (newId && faceHidden && faceHidden.value) {
           try {
             await window.srmLocal.saveFacePreview(newId, faceHidden.value);
             try { localStorage.setItem(`srm:facePreview:${newId}`, faceHidden.value); } catch(_){ }
           } catch(_){}
+          // also compute and register face embedding
+          try{
+            const descriptor = await computeDescriptorFromDataUrl(faceHidden.value);
+            await postEmbedding(Number(newId), descriptor);
+          }catch(err){ console.warn('register embedding failed', err); }
         }
         form.reset();
         if (faceImg) faceImg.src = defaultFaceSrc;
@@ -30,7 +109,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }catch(err){
         console.error('addStudent failed', err);
         const msg = (err && err.message) ? String(err.message) : 'Failed to add student';
-        alert(msg.includes('HTTP') ? `Failed to add student: ${msg}` : `Failed to add student`);
+        if (/409|duplicate/i.test(msg)) {
+          window.notify?.warn?.('Roll number already exists. Using existing record; register face via View Students.');
+        } else {
+          alert(msg.includes('HTTP') ? `Failed to add student: ${msg}` : `Failed to add student`);
+        }
       }
     });
 
@@ -123,6 +206,30 @@ document.addEventListener('DOMContentLoaded', ()=>{
       window.SRMCapture?.open((dataUrl)=>{
         if (faceImg) faceImg.src = dataUrl;
         if (faceHidden) faceHidden.value = dataUrl;
+      });
+    });
+  }
+
+  // Home tab: use the same capture modal to register a face for an existing student
+  const homeRegBtn = document.getElementById('openRegister');
+  if (homeRegBtn){
+    homeRegBtn.addEventListener('click', ()=>{
+      const sid = prompt('Enter Student ID to register face for:');
+      if (!sid) return;
+      const studentId = Number(sid);
+      if (!studentId || Number.isNaN(studentId)) { alert('Please enter a valid numeric Student ID.'); return; }
+      window.SRMCapture?.open(async (dataUrl)=>{
+        try{
+          await window.srmLocal.saveFacePreview(studentId, dataUrl);
+          try { localStorage.setItem(`srm:facePreview:${studentId}`, dataUrl); } catch(_){ }
+          const descriptor = await computeDescriptorFromDataUrl(dataUrl);
+          await postEmbedding(studentId, descriptor);
+          document.dispatchEvent(new CustomEvent('srm:data-changed', { detail:{ type:'student:update', id: studentId } }));
+          window.notify?.success?.('Face registered for student #' + studentId);
+        }catch(e){
+          console.error('Home register failed', e);
+          window.notify?.error?.('Failed to register face');
+        }
       });
     });
   }
