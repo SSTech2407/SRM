@@ -28,20 +28,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try {
       await new Promise((res, rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
       if (!img.naturalWidth || !img.naturalHeight){ console.warn('[descriptor:add] zero-dimension image'); return null; }
-      const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold:0.5, inputSize:224 });
+      const sizes = [224, 320, 416];
       let detFull = null;
-      try { detFull = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor(); }
-      catch(e){ console.warn('[descriptor:add] single face pipeline error', e.message); }
-      if (!detFull){
-        try {
-          const all = await faceapi.detectAllFaces(img, options).withFaceLandmarks().withFaceDescriptors();
-          if (all && all.length){
-            all.sort((a,b)=> (b.detection.box.width*b.detection.box.height)-(a.detection.box.width*a.detection.box.height));
-            detFull = all[0];
-          }
-        } catch(e){ console.warn('[descriptor:add] multi-face fallback error', e.message); }
+      for (const sz of sizes){
+        const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold:0.5, inputSize: sz });
+        try { detFull = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor(); }
+        catch(e){ console.warn(`[descriptor:add] single face pipeline error sz=${sz}`, e && e.message ? e.message : e); }
+        if (!detFull){
+          try {
+            const all = await faceapi.detectAllFaces(img, options).withFaceLandmarks().withFaceDescriptors();
+            if (all && all.length){
+              all.sort((a,b)=> (b.detection.box.width*b.detection.box.height)-(a.detection.box.width*a.detection.box.height));
+              detFull = all[0];
+            }
+          } catch(e){ console.warn(`[descriptor:add] multi-face fallback error sz=${sz}`, e && e.message ? e.message : e); }
+        }
+        if (detFull) break;
       }
-      if (!detFull){ console.warn('[descriptor:add] no face detected'); return null; }
+      if (!detFull){ console.warn('[descriptor:add] no face detected across attempts'); return null; }
+      const box = detFull.detection && detFull.detection.box;
+      if (!box || !isFinite(box.width) || !isFinite(box.height) || box.width < 15 || box.height < 15){ console.warn('[descriptor:add] invalid/too-small bounding box'); return null; }
       if (!detFull.descriptor || detFull.descriptor.length !== 128){ console.warn('[descriptor:add] invalid descriptor length'); return null; }
       return Array.from(detFull.descriptor);
     } catch(e){ console.warn('descriptor compute failed (outer add)', e); return null; }
@@ -152,6 +158,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       try{
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio:false });
         capVideo.srcObject = stream; await capVideo.play();
+        let attempts = 0; while ((capVideo.videoWidth === 0 || capVideo.videoHeight === 0) && attempts < 40){ await new Promise(r=> setTimeout(r,50)); attempts++; }
         setState('live');
       }catch(e){
         console.error('camera error', e);
@@ -178,8 +185,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     capModal.addEventListener('click', (e)=>{ if (e.target === capModal || e.target.classList.contains('cap-backdrop')) close(); });
     btnCapture?.addEventListener('click', ()=>{
       try{
+        const w = capVideo.videoWidth || 640; const h = capVideo.videoHeight || 480;
+        if (w < 160 || h < 160){ window.notify?.warn?.('Video not ready yet. Please wait and try again.'); return; }
         const cv = document.createElement('canvas');
-        cv.width = capVideo.videoWidth || 640; cv.height = capVideo.videoHeight || 480;
+        cv.width = w; cv.height = h;
         cv.getContext('2d').drawImage(capVideo, 0, 0, cv.width, cv.height);
         const dataUrl = cv.toDataURL('image/jpeg', 0.9);
         capPreview.src = dataUrl; setState('preview');

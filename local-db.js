@@ -36,11 +36,12 @@
       const r = await http('/api/v1/students', { method:'POST', body: clean });
       return r.id;
     } catch (e) {
-      // Handle duplicate roll conflict: fetch existing by roll and return its id
-      if (/duplicate/i.test(e.message) && clean.roll) {
+      // Handle duplicate roll conflict (409/Conflict) or duplicate keyword: fetch existing by roll and return its id
+      const msg = String(e && e.message || '');
+      if ((/duplicate|409|conflict/i.test(msg)) && clean.roll) {
         try {
           const all = await listStudents();
-          const existing = all.find(s => String(s.roll).trim() === clean.roll);
+          const existing = all.find(s => String(s.roll||'').trim().toLowerCase() === clean.roll.toLowerCase());
           if (existing) return existing.id;
         } catch(_) {}
       }

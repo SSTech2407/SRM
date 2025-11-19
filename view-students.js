@@ -18,39 +18,31 @@
   async function computeDescriptorFromDataUrl(dataUrl){
     if (!dataUrl) return null;
     if (!await ensureModels()) return null;
-    const img = new Image();
+    const img = new Image(); img.crossOrigin = 'anonymous';
     try {
       await new Promise((res, rej)=>{ img.onload=res; img.onerror=rej; img.src=dataUrl; });
-      if (!img.naturalWidth || !img.naturalHeight){
-        console.warn('[descriptor] image has zero dimensions');
-        return null;
-      }
-      const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5, inputSize: 224 });
-      // Try single face first
+      if (!img.naturalWidth || !img.naturalHeight){ console.warn('[descriptor] image has zero dimensions'); return null; }
+      const sizes = [224, 320, 416];
       let detFull = null;
-      try {
-        detFull = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor();
-      } catch (e) {
-        console.warn('[descriptor] single face pipeline error, fallback to multi', e.message);
+      for (const sz of sizes){
+        const options = new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5, inputSize: sz });
+        try { detFull = await faceapi.detectSingleFace(img, options).withFaceLandmarks().withFaceDescriptor(); }
+        catch(e){ console.warn(`[descriptor] single pipeline error sz=${sz}`, e && e.message ? e.message : e); }
+        if (!detFull){
+          try {
+            const all = await faceapi.detectAllFaces(img, options).withFaceLandmarks().withFaceDescriptors();
+            if (all && all.length){
+              all.sort((a,b)=> (b.detection.box.width*b.detection.box.height) - (a.detection.box.width*a.detection.box.height));
+              detFull = all[0];
+            }
+          } catch(e){ console.warn(`[descriptor] multi-face fallback failed sz=${sz}`, e && e.message ? e.message : e); }
+        }
+        if (detFull) break;
       }
-      if (!detFull){
-        // Fallback: detect all faces, choose the largest
-        try {
-          const all = await faceapi.detectAllFaces(img, options).withFaceLandmarks().withFaceDescriptors();
-          if (all && all.length){
-            all.sort((a,b)=> (b.detection.box.width*b.detection.box.height) - (a.detection.box.width*a.detection.box.height));
-            detFull = all[0];
-          }
-        } catch(e){ console.warn('[descriptor] multi-face fallback failed', e.message); }
-      }
-      if (!detFull){
-        console.warn('[descriptor] no face detected');
-        return null;
-      }
-      if (!detFull.descriptor || detFull.descriptor.length !== 128){
-        console.warn('[descriptor] invalid descriptor length', detFull.descriptor && detFull.descriptor.length);
-        return null;
-      }
+      if (!detFull){ console.warn('[descriptor] no face detected'); return null; }
+      const box = detFull.detection && detFull.detection.box;
+      if (!box || !isFinite(box.width) || !isFinite(box.height) || box.width < 15 || box.height < 15){ console.warn('[descriptor] invalid/too-small bounding box'); return null; }
+      if (!detFull.descriptor || detFull.descriptor.length !== 128){ console.warn('[descriptor] invalid descriptor length', detFull.descriptor && detFull.descriptor.length); return null; }
       return Array.from(detFull.descriptor);
     } catch (e) {
       console.warn('descriptor compute failed (outer)', e);

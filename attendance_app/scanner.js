@@ -4,12 +4,22 @@
 // GET  /api/v1/embeddings       -> [{ student_id, roll, name, embedding }]
 // GET  /api/v1/students         -> [{ id, roll, name, ... }]
 // POST /api/v1/attendance/mark  -> { student_id, date, status, method, confidence }
+const API_BASE = (localStorage.getItem('SRM_API_BASE') || 'http://localhost:4000').replace(/\/$/, '') + '/api/v1';
 
 const video = document.getElementById('video');
 const startBtn = document.getElementById('startBtn');
 const stopBtn  = document.getElementById('stopBtn');
 const registerBtn = document.getElementById('registerBtn'); // optional
-const statusEl = document.getElementById('status');
+// UI controls present in scanner.html
+const classSelect = document.getElementById('classSelect');
+const sectionSelect = document.getElementById('sectionSelect');
+const loadEmbBtn = document.getElementById('loadEmbBtn');
+const embCountSpan = document.getElementById('embCount');
+const studentsListBody = document.getElementById('studentsList');
+const submitBtn = document.getElementById('submitBtn');
+const manualBtn = document.getElementById('manualBtn');
+const sessionCount = document.getElementById('sessionCount');
+const logEl = document.getElementById('log');
 
 let stream = null;
 let detectInterval = null;
@@ -17,10 +27,14 @@ let modelsLoaded = false;
 let faceMatcher = null;
 let labelToStudentId = new Map();
 let recentMarks = {}; // debounce: label -> timestamp (ms)
+let allStudents = []; // cache of all students
+let sessionMarked = new Set(); // ids marked present in this session
 
 function setStatus(txt){
-  if (statusEl) statusEl.innerText = txt;
-  console.log(txt);
+  console.log('[scanner]', txt);
+  if (!logEl) return;
+  const time = new Date().toLocaleTimeString();
+  logEl.textContent = `${time} - ${txt}\n` + logEl.textContent;
 }
 
 // Load face-api models
@@ -39,7 +53,7 @@ async function loadModels() {
 async function fetchEmbeddings() {
   setStatus('Fetching embeddings from server...');
   try {
-    const resp = await fetch('/api/v1/embeddings');
+    const resp = await fetch(API_BASE + '/embeddings', { cache:'no-store' });
     if (!resp.ok) {
       const t = await resp.text();
       throw new Error(`HTTP ${resp.status}: ${t}`);
@@ -47,6 +61,7 @@ async function fetchEmbeddings() {
     const arr = await resp.json();
     if (!Array.isArray(arr)) throw new Error('Embeddings endpoint did not return array');
     setStatus(`Embeddings count: ${arr.length}`);
+    try{ if (embCountSpan) embCountSpan.textContent = `Embeddings: ${arr.length}`; }catch(_){ }
     return arr;
   } catch (err) {
     console.error('fetchEmbeddings error', err);
@@ -59,9 +74,10 @@ async function fetchEmbeddings() {
 async function fetchStudentsMap() {
   setStatus('Fetching students list...');
   try {
-    const resp = await fetch('/api/v1/students');
+    const resp = await fetch(API_BASE + '/students', { cache:'no-store' });
     if (!resp.ok) { throw new Error('Failed to fetch students: ' + resp.status); }
     const arr = await resp.json();
+    allStudents = Array.isArray(arr) ? arr : [];
     const map = new Map();
     for (const s of arr) {
       const roll = s.roll || s.roll_number || s.rollno || s.roll_no || null;
@@ -69,13 +85,66 @@ async function fetchStudentsMap() {
       map.set(key, s.id);
     }
     setStatus(`Students loaded: ${arr.length}`);
+    populateFiltersFromStudents(allStudents);
     return map;
   } catch (err) {
     console.error('fetchStudentsMap error', err);
     setStatus('Students load error: ' + err.message);
+    allStudents = [];
     return new Map();
   }
 }
+
+function populateFiltersFromStudents(list){
+  if (!Array.isArray(list)) return;
+  // semesters
+  if (classSelect){
+    const vals = Array.from(new Set(list.map(s => String(s.semester||'').trim()).filter(v=> v && v !== 'null'))).sort((a,b)=> Number(a)-Number(b));
+    classSelect.innerHTML = '<option value="">Select semester</option>' + vals.map(v=> `<option value="${v}">${v}</option>`).join('');
+  }
+  // sections
+  if (sectionSelect){
+    const vals = Array.from(new Set(list.map(s => String(s.section||'').trim()).filter(Boolean))).sort();
+    sectionSelect.innerHTML = '<option value="">Select section</option>' + vals.map(v=> `<option value="${v}">${v}</option>`).join('');
+  }
+}
+
+async function renderStudentsForSelection(){
+  if (!studentsListBody) return;
+  if (!allStudents.length){ await fetchStudentsMap(); }
+  const sem = (classSelect?.value||'').trim();
+  const sec = (sectionSelect?.value||'').trim();
+  const filtered = allStudents.filter(s => {
+    if (sem && String(s.semester||'') !== sem) return false;
+    if (sec && String(s.section||'') !== sec) return false;
+    return true;
+  });
+  studentsListBody.innerHTML = '';
+  if (!filtered.length){
+    studentsListBody.innerHTML = '<tr><td colspan="4" class="muted">No students match current selection.</td></tr>';
+    return;
+  }
+  for (const s of filtered){
+    const tr = document.createElement('tr');
+    const marked = sessionMarked.has(Number(s.id));
+    tr.innerHTML = `<td>${escapeHTML(s.name||'')}</td><td>${escapeHTML(s.roll||'')}</td><td>${marked? '<span class="badge ok">Present</span>' : '<span class="badge">—</span>'}</td><td><button class="btn small mark-btn" data-id="${s.id}">${marked? 'Undo' : 'Mark'}</button></td>`;
+    studentsListBody.appendChild(tr);
+  }
+}
+
+document.addEventListener('click', async (ev)=>{
+  const btn = ev.target.closest?.('.mark-btn');
+  if (!btn) return;
+  const id = Number(btn.getAttribute('data-id'));
+  if (!id) return;
+  if (sessionMarked.has(id)) sessionMarked.delete(id); else sessionMarked.add(id);
+  updateSessionCount();
+  renderStudentsForSelection();
+});
+
+function updateSessionCount(){ if (sessionCount) sessionCount.textContent = 'Marked: ' + sessionMarked.size; }
+
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
 
 function buildFaceMatcher(embeddings, threshold = 0.55) {
   try {
@@ -110,7 +179,7 @@ async function syncOfflineQueue() {
   const q = JSON.parse(localStorage.getItem('offline_attendance') || '[]');
   if (!Array.isArray(q) || q.length === 0) return { synced: 0 };
   try {
-    const resp = await fetch('/api/v1/attendance/sync', {
+    const resp = await fetch(API_BASE + '/attendance/sync', {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({ records: q })
@@ -158,13 +227,14 @@ async function markAttendanceForLabel(label, distance) {
       return;
     }
 
-    const resp = await fetch('/api/v1/attendance/mark', {
+    const resp = await fetch(API_BASE + '/attendance/mark', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (resp.ok) {
       setStatus(`Attendance marked for ${label}`);
+      if (studentId){ sessionMarked.add(Number(studentId)); updateSessionCount(); renderStudentsForSelection(); }
     } else {
       const txt = await resp.text();
       setStatus(`Attendance API error: ${resp.status} ${txt}`);
@@ -191,6 +261,8 @@ async function startCameraAndDetect() {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width:720, height:560 }});
     video.srcObject = stream;
     await video.play();
+    // wait for video dimensions to be ready
+    let tries = 0; while ((video.videoWidth === 0 || video.videoHeight === 0) && tries < 40){ await new Promise(r=> setTimeout(r,50)); tries++; }
     setStatus('Camera started');
 
     // create overlay
@@ -208,6 +280,7 @@ async function startCameraAndDetect() {
     detectInterval = setInterval(async () => {
       try {
         if (!modelsLoaded) return;
+        if (!video.videoWidth || !video.videoHeight) return;
         const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
         if (!detections || detections.length === 0) {
           setStatus('Detected faces: 0');
@@ -256,6 +329,18 @@ function stopCamera() {
 if (startBtn) startBtn.addEventListener('click', async () => { await startCameraAndDetect(); });
 if (stopBtn) stopBtn.addEventListener('click', () => stopCamera());
 if (registerBtn) registerBtn.addEventListener('click', () => alert('Use Register Face flow on Add Student page (if implemented).'));
+if (loadEmbBtn) loadEmbBtn.addEventListener('click', ()=>{ renderStudentsForSelection(); });
+if (classSelect) classSelect.addEventListener('change', ()=> renderStudentsForSelection());
+if (sectionSelect) sectionSelect.addEventListener('change', ()=> renderStudentsForSelection());
+if (submitBtn) submitBtn.addEventListener('click', async ()=>{
+  if (!sessionMarked.size){ setStatus('Nothing to submit.'); return; }
+  const arr = Array.from(sessionMarked).map(id=> ({ student_id: id, date: new Date().toISOString().slice(0,10), status: 'present', method: 'manual', confidence: null }));
+  try{
+    const resp = await fetch(API_BASE + '/attendance/sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ records: arr }) });
+    if (resp.ok){ sessionMarked.clear(); updateSessionCount(); setStatus('Attendance submitted: '+arr.length); renderStudentsForSelection(); }
+    else { const t = await resp.text(); setStatus('Submit failed: '+resp.status+' '+t); }
+  }catch(e){ setStatus('Submit failed: '+e.message); }
+});
 
 // expose sync to console button (optional)
 window.syncOfflineQueue = syncOfflineQueue;
