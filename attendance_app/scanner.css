@@ -73,11 +73,14 @@ select:focus,
 }
 
 .scanner-main {
-    display: grid;
-    grid-template-columns: 1fr 460px;
-    gap: 18px;
-    align-items: stretch;
-    align-content: start
+        display: grid;
+        grid-template-columns: 1fr 560px; /* widened side panel */
+        gap: 24px;
+        align-items: stretch;
+        align-content: start;
+}
+@media (min-width: 1200px){
+    .scanner-main { grid-template-columns: 1fr 640px; }
 }
 
 .video-panel {
@@ -144,22 +147,38 @@ select:focus,
 }
 #studentsPanel .students-table {
     min-width: 0;
-    table-layout: fixed;
+    table-layout: auto; /* allow natural width distribution */
+    width: 100%;
 }
 #studentsPanel .students-table th:nth-child(1),
-#studentsPanel .students-table td:nth-child(1) { width: 48%; }
+#studentsPanel .students-table td:nth-child(1) { width: 34%; }
 #studentsPanel .students-table th:nth-child(2),
-#studentsPanel .students-table td:nth-child(2) { width: 22%; }
+#studentsPanel .students-table td:nth-child(2) { width: 16%; }
 #studentsPanel .students-table th:nth-child(3),
-#studentsPanel .students-table td:nth-child(3) { width: 14%; }
+#studentsPanel .students-table td:nth-child(3) { width: 10%; text-align:center; }
 #studentsPanel .students-table th:nth-child(4),
-#studentsPanel .students-table td:nth-child(4) { width: 16%; }
+#studentsPanel .students-table td:nth-child(4) { width: 10%; text-align:center; }
+#studentsPanel .students-table th:nth-child(5),
+#studentsPanel .students-table td:nth-child(5) { width: 10%; text-align:center; }
+#studentsPanel .students-table th:nth-child(6),
+#studentsPanel .students-table td:nth-child(6) { width: 20%; text-align:right; }
 
-.btn-small {
-    padding: 6px 10px;
-    font-size: 12px;
-    border-radius: 8px;
+/* Allow name cell to wrap if long */
+#studentsPanel .students-table td:nth-child(1){ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width:1400px){
+    #studentsPanel .students-table td:nth-child(1){ white-space: normal; }
 }
+
+/* Present icon + name inline layout (stable width to avoid shift) */
+.present-name { display:flex; align-items:center; gap:8px; min-width:0; }
+.present-name .present-icon { width:24px; height:24px; flex:0 0 24px; display:inline-block; }
+.present-name .pn-text { flex:1 1 auto; min-width:0; }
+
+/* Fixed row height for consistency */
+#studentsPanel .students-table td { height:48px; }
+
+/* Action button refinement */
+.mark-btn.btn.small { padding:6px 12px; font-size:12px; font-weight:600; border-radius:8px; }
 
 @media (max-width:900px) {
     .scanner-main {

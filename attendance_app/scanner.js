@@ -1,10 +1,12 @@
-// attendance_app/scanner.js
+// attendance_app/scanner.js (patched)
 // Robust scanner: loads embeddings + students, builds faceMatcher, marks attendance.
-// Expects endpoints:
-// GET  /api/v1/embeddings       -> [{ student_id, roll, name, embedding }]
-// GET  /api/v1/students         -> [{ id, roll, name, ... }]
-// POST /api/v1/attendance/mark  -> { student_id, date, status, method, confidence }
+// - Uses absolute API_BASE so front-end can run on other port (e.g. 3000).
+// - Uses safe canvas drawing (no faceapi.draw.clearCanvas dependency).
+// - Filters invalid boxes to avoid Box.constructor errors.
+// - Uses smaller TinyFaceDetector inputSize for performance and a throttled loop.
+
 const API_BASE = (localStorage.getItem('SRM_API_BASE') || 'http://localhost:4000').replace(/\/$/, '') + '/api/v1';
+const MODEL_URL = (localStorage.getItem('SRM_MODEL_URL') || 'http://localhost:4000/attendance_app/models').replace(/\/$/, '');
 
 const video = document.getElementById('video');
 const startBtn = document.getElementById('startBtn');
@@ -30,6 +32,9 @@ let recentMarks = {}; // debounce: label -> timestamp (ms)
 let allStudents = []; // cache of all students
 let sessionMarked = new Set(); // ids marked present in this session
 
+// Image asset for present indicator. Ensure a file `present.png` exists in `attendance_app/`.
+const PRESENT_IMG_PATH = 'present.png'; // Provide your supplied PNG at attendance_app/present.png
+
 function setStatus(txt){
   console.log('[scanner]', txt);
   if (!logEl) return;
@@ -37,16 +42,21 @@ function setStatus(txt){
   logEl.textContent = `${time} - ${txt}\n` + logEl.textContent;
 }
 
-// Load face-api models
+// Load face-api models (from MODEL_URL)
 async function loadModels() {
   if (modelsLoaded) return;
   setStatus('Loading face-api models...');
-  const base = '/attendance_app/models';
-  await faceapi.nets.tinyFaceDetector.loadFromUri(base);
-  await faceapi.nets.faceLandmark68Net.loadFromUri(base);
-  await faceapi.nets.faceRecognitionNet.loadFromUri(base);
-  modelsLoaded = true;
-  setStatus('Models loaded.');
+  try{
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelsLoaded = true;
+    setStatus('Models loaded.');
+  }catch(e){
+    console.error('loadModels failed', e);
+    setStatus('Model load failed: ' + (e && e.message ? e.message : e));
+    throw e;
+  }
 }
 
 // Fetch embeddings from server
@@ -97,12 +107,10 @@ async function fetchStudentsMap() {
 
 function populateFiltersFromStudents(list){
   if (!Array.isArray(list)) return;
-  // semesters
   if (classSelect){
     const vals = Array.from(new Set(list.map(s => String(s.semester||'').trim()).filter(v=> v && v !== 'null'))).sort((a,b)=> Number(a)-Number(b));
     classSelect.innerHTML = '<option value="">Select semester</option>' + vals.map(v=> `<option value="${v}">${v}</option>`).join('');
   }
-  // sections
   if (sectionSelect){
     const vals = Array.from(new Set(list.map(s => String(s.section||'').trim()).filter(Boolean))).sort();
     sectionSelect.innerHTML = '<option value="">Select section</option>' + vals.map(v=> `<option value="${v}">${v}</option>`).join('');
@@ -121,15 +129,24 @@ async function renderStudentsForSelection(){
   });
   studentsListBody.innerHTML = '';
   if (!filtered.length){
-    studentsListBody.innerHTML = '<tr><td colspan="4" class="muted">No students match current selection.</td></tr>';
+    studentsListBody.innerHTML = '<tr><td colspan="6" class="muted">No students match current selection.</td></tr>';
     return;
   }
-  for (const s of filtered){
-    const tr = document.createElement('tr');
-    const marked = sessionMarked.has(Number(s.id));
-    tr.innerHTML = `<td>${escapeHTML(s.name||'')}</td><td>${escapeHTML(s.roll||'')}</td><td>${marked? '<span class="badge ok">Present</span>' : '<span class="badge">—</span>'}</td><td><button class="btn small mark-btn" data-id="${s.id}">${marked? 'Undo' : 'Mark'}</button></td>`;
-    studentsListBody.appendChild(tr);
-  }
+    for (const s of filtered){
+      const tr = document.createElement('tr');
+      const marked = sessionMarked.has(Number(s.id));
+      // Always reserve icon space to prevent layout shift; hide when not marked.
+      const presentIcon = `<img src="${PRESENT_IMG_PATH}" class="present-icon" alt="Present" onerror="this.onerror=null; this.src='../face_verified.png';" style="${marked? '' : 'visibility:hidden'}" />`;
+      const nameCell = `<span class="present-name">${presentIcon}<span class="pn-text">${escapeHTML(s.name||'')}</span></span>`;
+      tr.innerHTML = `
+        <td>${nameCell}</td>
+        <td>${escapeHTML(s.roll||'')}</td>
+        <td class="col-section">${escapeHTML(s.section||'')}</td>
+        <td class="col-semester">${escapeHTML(s.semester==null? '' : s.semester)}</td>
+        <td class="col-status">${marked? '<span class="badge ok">Present</span>' : '<span class="badge">—</span>'}</td>
+        <td class="col-action"><button class="btn small mark-btn" data-id="${s.id}">${marked? 'Unmark' : 'Mark Attendance'}</button></td>`;
+      studentsListBody.appendChild(tr);
+    }
 }
 
 document.addEventListener('click', async (ev)=>{
@@ -144,7 +161,17 @@ document.addEventListener('click', async (ev)=>{
 
 function updateSessionCount(){ if (sessionCount) sessionCount.textContent = 'Marked: ' + sessionMarked.size; }
 
-function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+function escapeHTML(s){
+  return String(s || '').replace(/[&<>"']/g, (c) => {
+    return {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[c];
+  });
+}
 
 function buildFaceMatcher(embeddings, threshold = 0.55) {
   try {
@@ -198,17 +225,12 @@ async function syncOfflineQueue() {
 
 // Mark attendance (debounced per label)
 async function markAttendanceForLabel(label, distance) {
-  // avoid duplicates within 45 seconds
   const now = Date.now();
   if (recentMarks[label] && (now - recentMarks[label] < 45*1000)) return;
   recentMarks[label] = now;
 
-  // resolve student_id from label -> studentId map
   let studentId = labelToStudentId.get(label);
-  if (!studentId) {
-    // try common numeric label vs string
-    studentId = labelToStudentId.get(String(label));
-  }
+  if (!studentId) studentId = labelToStudentId.get(String(label));
 
   const payload = {
     student_id: studentId || null,
@@ -221,7 +243,6 @@ async function markAttendanceForLabel(label, distance) {
 
   try {
     if (!studentId) {
-      // can't resolve id -> queue roll-based entry so admin can reconcile
       queueAttendance({ roll_number: label, ...payload, synced: false });
       setStatus(`Matched label ${label} but student id not resolved. Queued.`);
       return;
@@ -238,7 +259,6 @@ async function markAttendanceForLabel(label, distance) {
     } else {
       const txt = await resp.text();
       setStatus(`Attendance API error: ${resp.status} ${txt}`);
-      // fallback to local queue
       queueAttendance({ student_id: studentId, ...payload, synced: false });
     }
   } catch (err) {
@@ -247,12 +267,11 @@ async function markAttendanceForLabel(label, distance) {
   }
 }
 
-// Main start function
+// --- patched detection/start/stop block ---
 async function startCameraAndDetect() {
   await loadModels();
   const embeddings = await fetchEmbeddings();
   const studentsMap = await fetchStudentsMap();
-  // fill global map label->studentId using studentsMap (roll->id)
   labelToStudentId = studentsMap;
 
   buildFaceMatcher(embeddings, 0.55);
@@ -265,39 +284,82 @@ async function startCameraAndDetect() {
     let tries = 0; while ((video.videoWidth === 0 || video.videoHeight === 0) && tries < 40){ await new Promise(r=> setTimeout(r,50)); tries++; }
     setStatus('Camera started');
 
-    // create overlay
+    // create overlay (manual canvas fallback - avoid faceapi.draw.clearCanvas dependency)
     let overlay = document.getElementById('overlay');
     if (!overlay) {
-      overlay = faceapi.createCanvasFromMedia(video);
+      overlay = document.createElement('canvas');
       overlay.id = 'overlay';
       overlay.style.position = 'absolute';
-      overlay.style.left = video.offsetLeft + 'px';
-      overlay.style.top  = video.offsetTop + 'px';
-      document.body.appendChild(overlay);
+      // place overlay as sibling inside video parent so CSS alignment works
+      const parent = video.parentElement || document.body;
+      if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+      overlay.style.left = '0px'; overlay.style.top = '0px';
+      overlay.style.pointerEvents = 'none';
+      parent.appendChild(overlay);
     }
-    faceapi.matchDimensions(overlay, { width: video.videoWidth, height: video.videoHeight });
 
+    function resizeOverlay() {
+      overlay.width = video.videoWidth || video.clientWidth || 640;
+      overlay.height = video.videoHeight || video.clientHeight || 480;
+      overlay.style.width = (video.clientWidth || overlay.width) + 'px';
+      overlay.style.height = (video.clientHeight || overlay.height) + 'px';
+      overlay.style.left = (video.offsetLeft || 0) + 'px';
+      overlay.style.top = (video.offsetTop || 0) + 'px';
+    }
+    resizeOverlay();
+
+    const overlayCtx = overlay.getContext('2d');
+
+    try { faceapi.matchDimensions(overlay, { width: video.videoWidth, height: video.videoHeight }); } catch(e){ /* ignore if not present */ }
+
+    const TINY_OPTS = new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.5 });
+
+    if (detectInterval) clearInterval(detectInterval);
     detectInterval = setInterval(async () => {
       try {
         if (!modelsLoaded) return;
-        if (!video.videoWidth || !video.videoHeight) return;
-        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+        if (!video || video.readyState < 2) { setStatus('Video not ready'); return; }
+
+        resizeOverlay();
+
+        const detections = await faceapi.detectAllFaces(video, TINY_OPTS).withFaceLandmarks().withFaceDescriptors();
         if (!detections || detections.length === 0) {
+          overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
           setStatus('Detected faces: 0');
-          const ctx = overlay.getContext('2d'); ctx.clearRect(0,0,overlay.width, overlay.height);
           return;
         }
 
-        const resized = faceapi.resizeResults(detections, { width: video.videoWidth, height: video.videoHeight });
-        faceapi.draw.clearCanvas(overlay);
-        faceapi.draw.drawDetections(overlay, resized);
+        const resized = faceapi.resizeResults(detections, { width: overlay.width, height: overlay.height });
 
-        if (!faceMatcher) {
-          setStatus(`Detected faces: ${resized.length} — matcher not ready`);
-          return;
+        const valid = resized.filter(det => {
+          try {
+            const box = det && det.detection && det.detection.box;
+            if (!box) return false;
+            const vals = [box.left, box.top, box.right, box.bottom];
+            return vals.every(v => typeof v === 'number' && Number.isFinite(v));
+          } catch (e) { return false; }
+        });
+
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        // draw bounding boxes
+        for (const det of valid) {
+          const b = det.detection.box;
+          const x = b.left, y = b.top, w = b.width, h = b.height;
+          overlayCtx.lineWidth = Math.max(2, Math.round(Math.min(overlay.width, overlay.height) / 200));
+          overlayCtx.strokeStyle = '#00FF88';
+          overlayCtx.strokeRect(x, y, w, h);
+          overlayCtx.font = '14px Arial';
+          overlayCtx.fillStyle = '#00FF88';
+          const labelText = '';
+          overlayCtx.fillText(labelText, Math.max(2, x + 4), Math.max(12, y + 14));
         }
 
-        for (const det of resized) {
+        setStatus(`Detected faces: ${valid.length}`);
+
+        if (!faceMatcher) { setStatus(`Detected faces: ${valid.length} — matcher not ready`); return; }
+
+        for (const det of valid) {
           if (!det || !det.descriptor) continue;
           const best = faceMatcher.findBestMatch(det.descriptor);
           if (best && best.label && best.label !== 'unknown') {
@@ -310,7 +372,7 @@ async function startCameraAndDetect() {
       } catch (err) {
         console.error('detection loop error', err);
       }
-    }, 800);
+    }, 1000);
 
   } catch (err) {
     console.error('startCameraAndDetect error', err);

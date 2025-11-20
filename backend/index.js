@@ -231,19 +231,36 @@ app.post('/api/attendance', authMiddleware, async (req, res) => {
  * POST /api/v1/attendance/mark
  * Save single attendance record
  */
+// POST /api/v1/attendance/mark  (robust)
 app.post('/api/v1/attendance/mark', authMiddleware, async (req, res) => {
   try {
-    const { student_id, date, status = 'present', method = 'face_scan', confidence = null } = req.body;
-    if (!student_id) return res.status(400).json({ error: 'student_id required' });
-    const d = date || new Date().toISOString().slice(0, 10);
-    await pool.query('INSERT INTO attendance (student_id,date,status,method,confidence,marked_by) VALUES (?,?,?,?,?,?)',
-      [student_id, d, status, method, confidence, req.user.id]);
+    const { student_id, date, status = 'present', method = 'face', confidence = null, timestamp } = req.body || {};
+
+    console.info('[ATTEND-MARK] payload=', { student_id, date, status, method, confidence, timestamp });
+
+    if (!student_id) return res.status(400).json({ error: 'missing_student_id' });
+    const sid = Number(student_id);
+    if (!Number.isFinite(sid) || sid <= 0) return res.status(400).json({ error: 'invalid_student_id' });
+
+    // Normalize date and timestamp
+    const d = date ? String(date).slice(0,10) : new Date().toISOString().slice(0,10);
+    const ts = timestamp ? new Date(timestamp) : new Date();
+    if (isNaN(ts.getTime())) return res.status(400).json({ error: 'invalid_timestamp' });
+
+    // Insert including timestamp column. If you have UNIQUE(student_id, date) you can update instead of duplicate error.
+    const sql = `INSERT INTO attendance (student_id, date, timestamp, status, method, confidence, marked_by, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE timestamp=VALUES(timestamp), status=VALUES(status), method=VALUES(method), confidence=VALUES(confidence), marked_by=VALUES(marked_by), updated_at=NOW()`;
+    const params = [sid, d, ts, status, method, confidence, req.user?.id || null];
+
+    await pool.query(sql, params);
     return res.json({ success: true });
   } catch (err) {
-    console.error('POST /api/v1/attendance/mark failed:', err && err.stack ? err.stack : err);
-    return res.status(500).json({ error: 'server_error' });
+    console.error('[ATTEND-MARK] error:', err && (err.stack || err.message || err));
+    return res.status(500).json({ error: 'server_error', message: err && err.message ? String(err.message) : 'unknown' });
   }
 });
+
 
 /**
  * POST /api/v1/attendance/sync
