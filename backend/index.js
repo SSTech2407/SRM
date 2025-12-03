@@ -234,30 +234,42 @@ app.post('/api/attendance', authMiddleware, async (req, res) => {
 // POST /api/v1/attendance/mark  (robust)
 app.post('/api/v1/attendance/mark', authMiddleware, async (req, res) => {
   try {
-    const { student_id, date, status = 'present', method = 'face', confidence = null, timestamp } = req.body || {};
+    console.info('[attendance/mark] payload:', req.body);
 
-    console.info('[ATTEND-MARK] payload=', { student_id, date, status, method, confidence, timestamp });
+    const payload = req.body || {};
+    // allow student_id or roll fallback (scanner might send label instead)
+    let { student_id, date, status = 'present', method = 'face', confidence = null } = payload;
 
-    if (!student_id) return res.status(400).json({ error: 'missing_student_id' });
-    const sid = Number(student_id);
-    if (!Number.isFinite(sid) || sid <= 0) return res.status(400).json({ error: 'invalid_student_id' });
+    // normalize
+    student_id = student_id ? Number(student_id) : null;
+    if (Number.isNaN(student_id)) student_id = null;
+    date = date || new Date().toISOString().slice(0,10);
 
-    // Normalize date and timestamp
-    const d = date ? String(date).slice(0,10) : new Date().toISOString().slice(0,10);
-    const ts = timestamp ? new Date(timestamp) : new Date();
-    if (isNaN(ts.getTime())) return res.status(400).json({ error: 'invalid_timestamp' });
+    // Basic validation
+    if (!student_id) {
+      // if scanner sent roll string label instead of id, return 400 so client can queue or reconcile
+      return res.status(400).json({ error: 'invalid_payload', message: 'student_id required (numeric)' });
+    }
+    if (!['present','absent','late'].includes(String(status))) status = 'present';
+    method = String(method || 'face').slice(0,50);
 
-    // Insert including timestamp column. If you have UNIQUE(student_id, date) you can update instead of duplicate error.
-    const sql = `INSERT INTO attendance (student_id, date, timestamp, status, method, confidence, marked_by, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-                 ON DUPLICATE KEY UPDATE timestamp=VALUES(timestamp), status=VALUES(status), method=VALUES(method), confidence=VALUES(confidence), marked_by=VALUES(marked_by), updated_at=NOW()`;
-    const params = [sid, d, ts, status, method, confidence, req.user?.id || null];
+    // Optional: avoid duplicate mark for same student + date
+    const [existing] = await pool.query('SELECT id FROM attendance WHERE student_id = ? AND date = ? LIMIT 1', [student_id, date]);
+    if (Array.isArray(existing) && existing.length) {
+      console.info('[attendance/mark] duplicate skip for', student_id, date);
+      return res.status(409).json({ error: 'already_marked', message: 'Attendance already marked for this student on this date' });
+    }
 
-    await pool.query(sql, params);
-    return res.json({ success: true });
+    // Try insert - use explicit column list matching common schema
+    const sql = 'INSERT INTO attendance (student_id, date, status, method, confidence, marked_by, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())';
+    await pool.query(sql, [student_id, date, status, method, confidence, req.user?.id || null]);
+
+    return res.json({ success: true, student_id, date });
   } catch (err) {
-    console.error('[ATTEND-MARK] error:', err && (err.stack || err.message || err));
-    return res.status(500).json({ error: 'server_error', message: err && err.message ? String(err.message) : 'unknown' });
+    // log full error server-side
+    console.error('[attendance/mark] ERROR:', err && (err.stack || err.message || err));
+    // return error message (useful during dev). In production you might hide stack.
+    return res.status(500).json({ error: 'server_error', message: String(err && (err.sqlMessage || err.message || err)) });
   }
 });
 
